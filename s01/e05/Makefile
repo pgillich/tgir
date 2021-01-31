@@ -13,17 +13,17 @@ KUBECONFIG_DIR := $(XDG_CONFIG_HOME)/kubectl
 KUBECONFIG := $(KUBECONFIG_DIR)/config
 export KUBECONFIG
 
-ifeq ($(PLATFORM),Darwin)
-DOCTL ?= /usr/local/bin/doctl
-$(DOCTL):
-	brew install doctl
-else
-DOCTL ?= /usr/bin/doctl
-$(DOCTL):
-	$(error Please install doctl: https://github.com/digitalocean/doctl#installing-doctl)
-endif
-.PHONY: doctl
-doctl: $(DOCTL)
+# ifeq ($(PLATFORM),Darwin)
+# DOCTL ?= /usr/local/bin/doctl
+# $(DOCTL):
+# 	brew install doctl
+# else
+# DOCTL ?= /usr/bin/doctl
+# $(DOCTL):
+# 	$(error Please install doctl: https://github.com/digitalocean/doctl#installing-doctl)
+# endif
+# .PHONY: doctl
+# doctl: $(DOCTL)
 
 .PHONY: k9s
 k9s: | $(K9S) $(KUBECONFIG) ## Interact with K8S via terminal UI
@@ -53,12 +53,18 @@ env:: | $(DOCTL_CONFIG) $(KUBECONFIG_DIR) ## Configure shell env - eval "$(make 
 	@echo "$$ENV"
 
 .PHONY: k8s
-k8s: | $(DOCTL_CONFIG) $(KUBECONFIG_DIR) ## Create K8S cluster
-	$(DOCTL) kubernetes cluster get $(NAMESPACE) \
-	|| time $(DOCTL) kubernetes cluster create $(NAMESPACE) \
-	   --region $(K8S_REGION) \
-	   --auto-upgrade \
-	   --maintenance-window saturday=20:00
+# k8s: | $(DOCTL_CONFIG) $(KUBECONFIG_DIR) ## Create K8S cluster
+# 	$(DOCTL) kubernetes cluster get $(NAMESPACE) \
+# 	|| time $(DOCTL) kubernetes cluster create $(NAMESPACE) \
+# 	   --region $(K8S_REGION) \
+# 	   --auto-upgrade \
+# 	   --maintenance-window saturday=20:00
+k8s:
+	kind create cluster --name $(NAMESPACE) --config=kind-config.yaml --kubeconfig $(KUBECONFIG) --wait=2m
+	kubectl cluster-info --context kind-$(NAMESPACE)
+	cp $(KUBECONFIG) ~/.kube/config
+	kubectl wait --for=condition=Ready --timeout=2m -A pod --all \
+		|| echo 'TIMEOUT' >&2
 
 .PHONY: k8s-ls
 k8s-ls: | $(DOCTL_CONFIG) ## List K8S clusters
@@ -104,17 +110,26 @@ shell: | $(KUBECONFIG) ## Open shell in RabbitMQ node
 	$(KUBECTL) exec -it rabbitmq-0 -- /bin/bash
 
 .PHONY: public
-public: | $(KUBECONFIG) ## Make simplest RabbitMQ on K8S public
-	$(KUBECTL) apply --filename $(CURDIR)/k8s/service.yml
+# public: | $(KUBECONFIG) ## Make simplest RabbitMQ on K8S public
+# 	$(KUBECTL) apply --filename $(CURDIR)/k8s/service.yml
+public: ## Make simplest RabbitMQ on K8S public
+	kubectl apply --filename $(CURDIR)/k8s/service.yml
 
 .PHONY: persistent
-persistent: | $(KUBECONFIG) $(YQ) ## Give RabbitMQ on K8S persistent storage
-	$(KUBECTL) apply --filename $(CURDIR)/k8s/persistentvolumeclaim.yml
-	$(YQ) merge $(CURDIR)/k8s/statefulset* | $(KUBECTL) apply --filename -
+# persistent: | $(KUBECONFIG) $(YQ) ## Give RabbitMQ on K8S persistent storage
+	# $(KUBECTL) apply --filename $(CURDIR)/k8s/persistentvolumeclaim.yml
+	# $(YQ) merge $(CURDIR)/k8s/statefulset* | $(KUBECTL) apply --filename -
+
+persistent:
+	#kubectl apply -f $(CURDIR)/k8s/statefulset.volume
+	#kubectl apply -f $(CURDIR)/k8s/statefulset.yml
+	yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' $(CURDIR)/k8s/statefulset* | kubectl apply -f -
 
 .PHONY: benchmark
-benchmark: | public $(KUBECONFIG) ## Benchmark simplest RabbitMQ on K8S
-	$(KUBECTL) create --filename $(CURDIR)/k8s/benchmark.job
+# benchmark: | public $(KUBECONFIG) ## Benchmark simplest RabbitMQ on K8S
+# 	$(KUBECTL) create --filename $(CURDIR)/k8s/benchmark.job
+benchmark: ## Benchmark simplest RabbitMQ on K8S
+	kubectl create --filename $(CURDIR)/k8s/benchmark.job
 
 .PHONY: all
 all: k8s persistent public benchmark ## Create K8S cluster, deploy RabbitMQ, make public & persistent, then benchmark

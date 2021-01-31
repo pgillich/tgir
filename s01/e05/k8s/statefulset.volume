@@ -9,5 +9,4 @@ spec:
               name: rabbitmq
       volumes:
         - name: rabbitmq
-          persistentVolumeClaim:
-            claimName: rabbitmq
+          emptyDir: {}
